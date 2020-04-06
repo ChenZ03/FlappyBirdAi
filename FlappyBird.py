@@ -1,8 +1,6 @@
 import pygame
 import neat
-import math
 import os
-import time
 import random
 pygame.font.init()
 
@@ -108,8 +106,8 @@ class Bird:
 
 # THE PIPE
 class Pipe:
-    GAP = 150
-    VEL = 5
+    GAP = 160
+    VEL = 7
 
     def __init__(self, x):
         self.x = x
@@ -157,7 +155,7 @@ class Pipe:
 
 # THE GROUND
 class Ground:
-    VEL = 5
+    VEL = 7
     G_WIDTH = GROUND_IMG.get_width()
     IMG = GROUND_IMG
 
@@ -184,7 +182,7 @@ class Ground:
 
 
 # DRAW THE GAME
-def draw_window(win, bird, pipes, ground, score):
+def draw_window(win, birds  , pipes, ground, score):
     # DRAW BACKGROUND
     win.blit(BG_IMG, (0, 0))
 
@@ -200,15 +198,26 @@ def draw_window(win, bird, pipes, ground, score):
     ground.draw(win)
 
     # DRAW BIRD
-    bird.draw(win)
+    for bird in birds:
+        bird.draw(win)
     pygame.display.update()
 
 
-# RUN
-def main():
-    bird = Bird(240, 360)
-    ground = Ground(730)
-    pipes = [Pipe(580)]
+# GAME
+def main(genomes, config):
+    nets = []
+    ge = []
+    birds = []
+
+    for _, g in genomes:
+        net = neat.nn.FeedForwardNetwork.create(g, config)
+        nets.append(net)
+        birds.append(Bird(240, 360))
+        g.fitness = 0
+        ge.append(g)
+
+    ground = Ground(720)
+    pipes = [Pipe(590)]
     win = pygame.display.set_mode((WIDTH, HEIGHT))
     rate = pygame.time.Clock()
     score = 0
@@ -219,40 +228,81 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
+                pygame.quit()
+                quit()
 
-        # bird.move()
+        pipe_index = 0
+        if len(birds) > 0:
+            if len(pipes) > 1 and birds[0].x > pipes[0].x + pipes[0].PIPE_TOP.get_width():
+                pipe_index = 1
+        else:
+            run = False
+            break
+
+        for x, bird in enumerate(birds):
+            bird.move()
+            ge[x].fitness += 1
+
+            output = nets[x].activate((bird.y, abs(bird.y - pipes[pipe_index].height), abs(bird.y - pipes[pipe_index].bottom)))
+
+            if output[0] > 0.5:
+                bird.jump()
+
         add_pipe = False
         remove = []
         for pipe in pipes:
-            if pipe.collide(bird):
-                pass
+            for x, bird in enumerate(birds):
+
+                if pipe.collide(bird):
+                    ge[x].fitness -= 1
+                    birds.pop(x)
+                    nets.pop(x)
+                    ge.pop(x)
+
+                if not pipe.passed and pipe.x < bird.x:
+                    pipe.passed = True
+                    add_pipe = True
 
             if pipe.x + pipe.PIPE_TOP.get_width() < 0:
                 remove.append(pipe)
-
-            if not pipe.passed and pipe.x < bird.x:
-                pipe.passed = True
-                add_pipe = True
 
             pipe.move()
 
         if add_pipe:
             score += 1
-            pipes.append(Pipe(580))
+            for g in ge:
+                g.fitness += 5
+            pipes.append(Pipe(590))
 
         for rem in remove:
             pipes.remove(rem)
 
-        if bird.y + bird.img.get_height() >= 730:
-            pass
+        for x, bird in enumerate(birds):
+            if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
+                birds.pop(x)
+                nets.pop(x)
+                ge.pop(x)
 
         ground.move()
-        draw_window(win, bird, pipes, ground, score)
-
-    pygame.quit()
-    quit()
+        draw_window(win, birds, pipes, ground, score)
 
 
-main()
+def run(path):
+    config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction, neat.DefaultSpeciesSet,
+                                neat.DefaultStagnation, path)
+
+    population = neat.Population(config)
+
+    population.add_reporter(neat.StdOutReporter(True))
+    stats = neat.StatisticsReporter()
+    population.add_reporter(stats)
+
+    sucessor = population.run(main, 50)
+
+
+if __name__ == "__main__":
+    directory = os.path.dirname(__file__)
+    path = os.path.join(directory, "Neat.txt")
+    run(path)
 
 
